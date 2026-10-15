@@ -11,7 +11,7 @@ const Measurement = require('../models/Measurement');
 const CurrentMeasurement = require('../models/CurrentMeasurement');
 const EmissionFactor = require('../models/EmissionFactor');
 
-const { optionalAuthenticate, authenticate } = require('../middleware/auth');
+const { optionalAuthenticate, authenticate, checkFacilityAccess } = require('../middleware/auth');
 const { validateTransition, isRecordImmutable } = require('../services/workflowService');
 const {
   calculateEmissionIntensity,
@@ -142,30 +142,35 @@ router.get('/metrics', async (req, res) => {
   }
 });
 
-router.post('/metrics', optionalAuthenticate, async (req, res) => {
+router.post('/metrics', authenticate, async (req, res) => {
   try {
     const data = req.body;
+    if (!data.reportingPeriod || !/^\d{4}-(0[1-9]|1[0-2])$/.test(data.reportingPeriod)) {
+      return res.status(400).json({ success: false, message: 'Invalid reportingPeriod format, expected YYYY-MM' });
+    }
+
     const facility = await Facility.findOne({ facilityId: data.facilityId });
     if (!facility) {
       return res.status(404).json({ success: false, message: 'Facility not found' });
     }
 
+    if (!checkFacilityAccess(req.user, facility.facilityId)) {
+      return res.status(403).json({ success: false, message: `Forbidden: not authorized for facility ${facility.facilityId}` });
+    }
+
     const scope1 = Number(data.scope1EmissionsTons) || 0;
     const scope2 = Number(data.scope2EmissionsTons) || 0;
-    const prod = Number(data.productionOutputTons) || 1;
+    const prod = Number(data.productionOutputTons) || 0;
     const totalEmissions = +(scope1 + scope2).toFixed(1);
-    const intensity = +(totalEmissions / prod).toFixed(4);
+    const intensityRes = calculateEmissionIntensity(totalEmissions, prod);
+    const intensity = intensityRes.isAvailable ? intensityRes.value : 0;
 
-    const wasteGen = Number(data.wasteGeneratedTons) || 1;
+    const wasteGen = Number(data.wasteGeneratedTons) || 0;
     const wasteDiv = Number(data.wasteDivertedTons) || 0;
-    const wasteDivPct = +((wasteDiv / wasteGen) * 100).toFixed(1);
+    const wasteDivRes = calculateWasteDiversionRate(wasteDiv, wasteGen);
+    const wasteDivPct = wasteDivRes.isAvailable ? wasteDivRes.value : 0;
 
-    const actor = req.user || {
-      userId: 'USR-COORD-02',
-      username: data.submittedBy || 'Plant Environmental Lead',
-      role: 'PLANT_COORDINATOR'
-    };
-
+    const actor = req.user;
     const initialStatus = data.status === 'DRAFT' ? 'DRAFT' : 'SUBMITTED';
 
     const metric = new MonthlyMetric({
@@ -217,12 +222,16 @@ router.post('/metrics', optionalAuthenticate, async (req, res) => {
 });
 
 // State Transitions & Approvals (PR-07, FR-023-FR-029)
-router.patch('/metrics/:id/status', optionalAuthenticate, async (req, res) => {
+router.patch('/metrics/:id/status', authenticate, async (req, res) => {
   try {
     const { status: targetStatus, reason } = req.body;
     const metric = await MonthlyMetric.findOne({ metricId: req.params.id });
     if (!metric) {
       return res.status(404).json({ success: false, message: 'Metric record not found' });
+    }
+
+    if (!checkFacilityAccess(req.user, metric.facilityId)) {
+      return res.status(403).json({ success: false, message: `Forbidden: not authorized for facility ${metric.facilityId}` });
     }
 
     // Immutable check
@@ -233,11 +242,7 @@ router.patch('/metrics/:id/status', optionalAuthenticate, async (req, res) => {
       });
     }
 
-    const actor = req.user || {
-      userId: 'USR-MGR-01',
-      username: 'Dr. Sarah Lin (VP ESG)',
-      role: 'SUSTAINABILITY_MANAGER'
-    };
+    const actor = req.user;
 
     // Transition validation
     const transitionCheck = validateTransition(metric.status, targetStatus, actor);
@@ -470,9 +475,12 @@ function getAdjacentTelemetryValue(metric, prevVal) {
 }
 
 // Telemetry Simulation Tick for Demo (Continuous Adjacent Drift)
-router.post('/telemetry/simulate-tick', async (req, res) => {
+router.post('/telemetry/simulate-tick', authenticate, async (req, res) => {
   try {
     const { facilityId = 'FAC-ATX-01' } = req.body;
+    if (!checkFacilityAccess(req.user, facilityId)) {
+      return res.status(403).json({ success: false, message: `Forbidden: not authorized for facility ${facilityId}` });
+    }
     const sources = await DataSource.find({ facilityId });
 
     const updatedSnapshots = [];
@@ -499,6 +507,19 @@ router.post('/telemetry/simulate-tick', async (req, res) => {
         { upsert: true, new: true }
       );
 
+      // Persist to time-series history (PR-03)
+      await Measurement.create({
+        measurementId: `MSR-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`,
+        sourceId: src.sourceId,
+        facilityId,
+        metric: src.metric,
+        value: newVal,
+        unit: src.unit,
+        quality: 'GOOD',
+        sourceTimestamp: new Date(),
+        receivedAt: new Date()
+      });
+
       updatedSnapshots.push(snap);
 
       if (io) {
@@ -513,7 +534,7 @@ router.post('/telemetry/simulate-tick', async (req, res) => {
 });
 
 // 8. Batch CSV Import (PR-09, FR-030-FR-032)
-router.post('/import/metrics', optionalAuthenticate, async (req, res) => {
+router.post('/import/metrics', authenticate, async (req, res) => {
   try {
     const csvContent = typeof req.body === 'string' ? req.body : req.body.csv;
     const policy = (req.body.policy || 'ALL_OR_NOTHING').toUpperCase();
@@ -530,6 +551,16 @@ router.post('/import/metrics', optionalAuthenticate, async (req, res) => {
         message: 'Import rejected due to validation errors (ALL_OR_NOTHING policy)',
         result: importResult
       });
+    }
+
+    // Enforce facility access authorization on every imported row (ALL_OR_NOTHING)
+    for (const item of importResult.validRecords) {
+      if (!checkFacilityAccess(req.user, item.facilityId)) {
+        return res.status(403).json({
+          success: false,
+          message: `Forbidden: not authorized to import records for facility ${item.facilityId}`
+        });
+      }
     }
 
     // Commit valid records

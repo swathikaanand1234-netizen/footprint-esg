@@ -1,6 +1,13 @@
 const crypto = require('crypto');
 
-const TOKEN_SECRET = process.env.TOKEN_SECRET || 'footprint-esg-insecure-default-secret-key-change-in-prod';
+let resolvedTokenSecret = process.env.TOKEN_SECRET;
+if (!resolvedTokenSecret) {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('TOKEN_SECRET must be configured in production environment');
+  }
+  resolvedTokenSecret = 'footprint-esg-insecure-default-secret-key-change-in-prod';
+}
+const TOKEN_SECRET = resolvedTokenSecret;
 const TOKEN_TTL_HOURS = 24;
 
 /**

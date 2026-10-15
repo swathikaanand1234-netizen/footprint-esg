@@ -34,9 +34,15 @@ FAC-STR-02,2026-09,11800,110.0,335.0,1850.0,1650.0,2150,17200,13800,134.0,128.0`
   const handleSubmit = async (e, asDraft = false) => {
     e.preventDefault();
     setLoading(true);
-    await onSubmit({ ...formData, status: asDraft ? 'DRAFT' : 'SUBMITTED' });
-    setLoading(false);
-    onClose();
+    let success = false;
+    try {
+      success = await onSubmit({ ...formData, status: asDraft ? 'DRAFT' : 'SUBMITTED' });
+    } finally {
+      setLoading(false);
+    }
+    if (success !== false) {
+      onClose();
+    }
   };
 
   const handleCsvImport = async () => {

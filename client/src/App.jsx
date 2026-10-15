@@ -100,6 +100,10 @@ export default function App() {
       setMetrics(prev => [res.data, ...prev]);
       const ov = await api.getOverview();
       if (ov.success) setOverview(ov.data);
+      return true;
+    } else {
+      alert(`Metric submission failed: ${res.message || 'An error occurred'}`);
+      return false;
     }
   };
 

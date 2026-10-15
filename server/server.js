@@ -62,11 +62,20 @@ if (fs.existsSync(clientDistPath)) {
 // Safe Error Handler (FR-005)
 app.use(safeErrorHandler);
 
+const { verifyToken } = require('./utils/auth');
+const { checkFacilityAccess } = require('./middleware/auth');
+
 // Socket.IO Room Management (FR-003, FR-016)
 io.on('connection', (socket) => {
+  const token = socket.handshake.auth?.token;
+  const user = token ? verifyToken(token) : null;
+
   // Client subscribes to an authorized facility room
   socket.on('subscribe:facility', (facilityId) => {
     if (facilityId && typeof facilityId === 'string') {
+      if (!user || !checkFacilityAccess(user, facilityId)) {
+        return socket.emit('error', { message: `Unauthorized facility room: ${facilityId}` });
+      }
       const room = `facility:${facilityId}`;
       socket.join(room);
     }
@@ -99,6 +108,7 @@ const startServer = async () => {
       if (telemetryTimer) return;
       const DataSource = require('./models/DataSource');
       const CurrentMeasurement = require('./models/CurrentMeasurement');
+      const Measurement = require('./models/Measurement');
       const { getAdjacentTelemetryValue } = require('./routes/api');
 
       telemetryTimer = setInterval(async () => {
@@ -126,6 +136,19 @@ const startServer = async () => {
               },
               { upsert: true, new: true }
             );
+
+            // Persist time-series measurement record (PR-03)
+            await Measurement.create({
+              measurementId: `MSR-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              sourceId: src.sourceId,
+              facilityId: src.facilityId,
+              metric: src.metric,
+              value: newVal,
+              unit: src.unit,
+              quality: 'GOOD',
+              sourceTimestamp: new Date(),
+              receivedAt: new Date()
+            }).catch(() => {});
 
             io.to(`facility:${src.facilityId}`).emit('telemetry:update', snap);
           }

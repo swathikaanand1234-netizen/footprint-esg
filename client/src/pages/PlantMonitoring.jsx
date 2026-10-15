@@ -36,7 +36,9 @@ export const PlantMonitoring = ({ facilities, metrics }) => {
     const socketUrl = rawApiUrl
       ? (rawApiUrl.startsWith('http://') || rawApiUrl.startsWith('https://') ? rawApiUrl : `https://${rawApiUrl}`)
       : '/';
+    const token = localStorage.getItem('esg_auth_token') || '';
     const socket = io(socketUrl, {
+      auth: { token },
       transports: ['websocket', 'polling']
     });
 
