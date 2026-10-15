@@ -38,27 +38,26 @@ docker compose down
 
 ---
 
-## ☁️ Deploying to Render
+## ☁️ Deploying to Render (100% Free Tier)
 
-This repository is configured for Render via `render.yaml` (Blueprint) or manual service setup.
+This repository is optimized for Render's **Free Tier** as a unified full-stack service (serving the React dashboard and Express API/Socket.IO from a single free web service, eliminating CORS and domain mismatch).
 
-### Option 1: 1-Click Render Blueprint (Recommended)
+### 1-Click Render Blueprint (Recommended)
 1. Push this repository to GitHub.
 2. In the Render Dashboard, click **New +** -> **Blueprint**.
-3. Select your repository. Render automatically configures:
-   - **`footprint-esg-server`**: Node.js Web Service with automatic `/health` checks.
-   - **`footprint-esg-client`**: Static Site with Vite build and SPA routing rewrite rules.
-4. When prompted, provide your MongoDB Atlas connection string for `MONGO_URI`.
+3. Select `swathikaanand1234-netizen/footprint-esg`.
+4. Render detects `render.yaml` and deploys the unified **`footprint-esg`** web service.
+5. When prompted, provide your MongoDB Atlas connection string for `MONGO_URI`.
 
-### Option 2: Unified Full-Stack Web Service (Single Free-Tier Service)
-If you prefer deploying a single web service that serves both API and React frontend:
-- **Environment**: Node
+### Or Manual Web Service Setup:
 - **Build Command**: `npm run build`
 - **Start Command**: `npm start`
+- **Health Check Path**: `/health`
 - **Environment Variables**:
   - `NODE_ENV`: `production`
+  - `PORT`: `10000`
   - `MONGO_URI`: `mongodb+srv://<user>:<password>@cluster.mongodb.net/footprint_esg?retryWrites=true&w=majority`
-  - `TOKEN_SECRET`: `<any-secure-random-string>`
+  - `TOKEN_SECRET`: `<any-secure-random-32-char-string>`
 
 ---
 
