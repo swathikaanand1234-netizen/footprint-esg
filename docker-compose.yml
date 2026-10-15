@@ -1,0 +1,43 @@
+services:
+  mongo:
+    image: mongo:6
+    container_name: esg_mongo
+    restart: unless-stopped
+    ports:
+      - "27019:27017"
+    volumes:
+      - esg_mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: esg_server
+    restart: unless-stopped
+    ports:
+      - "5002:5002"
+    environment:
+      - PORT=5002
+      - MONGO_URI=mongodb://mongo:27017/footprint_esg
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: esg_client
+    restart: unless-stopped
+    ports:
+      - "3002:80"
+    depends_on:
+      - server
+
+volumes:
+  esg_mongo_data:
