@@ -4,7 +4,7 @@ A production-grade, enterprise MERN-stack platform that centralizes global manuf
 
 ---
 
-## ✨ Features & Architecture (70%+ Completed)
+## ✨ Features & Architecture (Completed)
 
 - **Consolidated Corporate Carbon Footprint**: Real-time aggregation of Scope 1 (Direct Fuel, Fleet Diesel, Natural Gas) and Scope 2 (Market-based Purchased Electricity) emissions in metric tons CO2e.
 - **Activity Carbon Intensity Tracking**: Calculation of carbon emissions per metric ton of manufactured product (`tCO2e / ton output`).
